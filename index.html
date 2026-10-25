@@ -1,0 +1,148 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VA-ECMO 回路シミュレーター v1.8</title><style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#e8f1fa;background:#091420}*{box-sizing:border-box}body{margin:0;padding:14px;max-width:850px;margin:auto}h1{font-size:21px;margin:5px 0}p{line-height:1.55;color:#b8cad9}section{background:#132537;border:1px solid #2c475e;border-radius:14px;padding:14px;margin:12px 0}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}button,select{background:#203d55;color:#fff;border:1px solid #47718d;border-radius:9px;padding:10px;font-size:15px}button:active{background:#3c6786}button.selected{background:#176a75}input[type=range]{width:100%;accent-color:#58c9da}.readings{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.meter{background:#0a1c2a;border-radius:9px;padding:10px}.meter b{font-size:21px;color:#fff}.meter small{display:block;color:#a5bed0;margin-bottom:5px}canvas{width:100%;display:block;background:#081722;border-radius:12px}.note{font-size:12px;color:#9fb5c5}#feedback{min-height:42px;color:#e8d49e}.hidden{display:none}.answer{display:block;width:100%;margin:7px 0;text-align:left}.pill{font-size:12px;border-radius:15px;background:#1b3b50;padding:4px 9px;color:#a8d8e4}</style></head><body>
+<h1>VA-ECMO 回路シミュレーター <span class="pill">v2.0 公開準備版</span></h1><p>① 回路を自由操作 → ② 酸素化の変化を観察 → ③ 5問の実践評価。</p>
+<section><canvas id="c" width="760" height="360" aria-label="VA-ECMOの模式回路"></canvas><p class="note">脱血不良を選ぶと青い脱血管が周期的に細くなり、回転数を上げるほどその周期が短くなります。流量の揺らぎも連動します。<br>血液粒子は脱血側・送血側で同じ画面上の移動速度に統一しています（実測流速ではありません）。模式回路：患者 → 脱血 → 遠心ポンプ → 人工肺 → 送血 → 患者。流れる粒子は血流のイメージであり、実測速度ではありません。青は人工肺前の回路、赤は人工肺後の回路、緑は酸素ガス供給を示します。回路の色は酸素化の良否を示しません。</p></section>
+<section><div><label for="rpm">遠心ポンプ回転数　<strong id="rpmLabel">3000 rpm</strong></label><input id="rpm" type="range" min="0" max="4500" step="100" value="3000"></div><div class="controls"><button id="stop">ポンプ停止</button><button id="reset">正常に戻す</button></div><p style="margin-bottom:5px">トラブルを発生させる</p><select id="scenario" style="width:100%"><option value="normal">正常</option><option value="drain">脱血不良</option><option value="oxy">人工肺抵抗増大</option><option value="return">送血側抵抗増大</option><option value="gas">酸素供給停止（圧力とは別の異常）</option></select></section>
+<section><div class="readings"><div class="meter"><small>模擬血流量</small><b id="flow">--</b> L/min</div><div class="meter"><small>脱血圧</small><b id="pv">--</b> mmHg</div><div class="meter"><small>人工肺前圧</small><b id="pre">--</b> mmHg</div><div class="meter"><small>人工肺後圧</small><b id="post">--</b> mmHg</div></div><p id="trend"></p><canvas id="graph" width="760" height="150" aria-label="血流量の経時変化"></canvas></section>
+
+
+<section id="oxygenPanel"><h2 style="font-size:17px">② 酸素化の変化を観察する</h2>
+<p>血流が維持されても、酸素ガス供給が止まると人工肺のガス交換は損なわれます。患者の自己心拍出・肺機能によって、上半身と下半身の酸素化の変化は異なり得ます。</p>
+<div class="controls"><button id="gasFail" style="background:#7c343d">酸素供給を止める</button><button id="gasRestore" style="background:#245d50">酸素供給を再開</button></div>
+<p><label for="nativeLung">自己肺の酸素化（教育用条件）</label><select id="nativeLung" style="width:100%"><option value="poor">不良：上半身も影響を受けやすい</option><option value="good">比較的良好：上半身の低下が目立たない場合</option></select></p>
+<div class="readings"><div class="meter"><small>人工肺ガス供給</small><b id="gasStatus" style="font-size:17px">供給中</b></div><div class="meter"><small>停止からの模擬経過（10倍速）</small><b id="gasTime">0</b> 秒</div><div class="meter"><small>右上肢SpO₂の傾向</small><b id="upperSat" style="font-size:17px">基準状態</b></div><div class="meter"><small>下半身酸素化の傾向</small><b id="lowerSat" style="font-size:17px">基準状態</b></div></div>
+<p id="gasMessage" aria-live="polite">酸素供給を停止・再開し、血流量・圧力と酸素化の違いを観察してください。</p>
+<canvas id="oxygenGraph" width="760" height="190" aria-label="酸素化傾向の模式的な経時変化"></canvas>
+<p class="note">グラフは仮想的な酸素化指標（0〜100の相対スケール）で、SpO₂やPaO₂の実測値・予測値ではありません。右上肢SpO₂は上半身評価の一例であり、下半身酸素化は実測モニター値ではありません。実際の評価には右上肢動脈血ガス、人工肺前後の血液ガス、ガス供給経路などの確認が重要です。模擬経過は10倍速で進み120秒で演習を一時停止します。120秒は生存可能時間や安全な猶予を示すものではありません。</p></section>
+<section id="examPanel" style="border:2px solid #a27c48"><h2 style="font-size:18px">③ 実践評価（5問）</h2>
+<p>答えを表示せずに、開始前確認から異常発見・対応・再評価までを判断します。最後にまとめて採点します。</p>
+<button id="examStart" style="width:100%">評価を開始する</button>
+<div id="examBody" class="hidden">
+<p class="pill" id="examProgress"></p>
+<div class="meter" style="margin:10px 0"><small>ケース情報（模擬）</small><div id="examVitals"></div></div>
+<p id="examPrompt" style="color:#fff;font-weight:600"></p><div id="examChoices"></div>
+<p id="examNotice" aria-live="polite"></p>
+</div>
+<div id="examResult" class="hidden"></div>
+<p class="note">これは教育用の形成的評価です。実機の操作手順を置き換えず、臨床技能を認定するものではありません。模擬経過・指標は実測予測ではありません。</p></section>
+
+<section id="surveyPanel" style="border:2px solid #3b8e91;text-align:center"><h2 style="font-size:18px">学習後アンケート</h2><p>シミュレーターを体験した後、教材の有用性や改善点についてご回答ください。回答は任意です。</p><a href="https://docs.google.com/forms/d/e/1FAIpQLSed778yPjOQB88fWrQ860RiIZ3KEkSaBYBhaDIvtpkEkQpkiw/viewform?usp=header" target="_blank" rel="noopener noreferrer" style="display:block;padding:15px 12px;border-radius:10px;background:#176a75;color:white;font-size:17px;font-weight:700;text-decoration:none">学習後アンケートに回答する ↗</a><p class="note">Googleフォームが別タブで開きます。院内向けアンケートです。回答の取り扱いはフォームの案内をご確認ください。</p></section>
+<p class="note">チャタリングは脱血条件による管の周期的虚脱を単純化した表現です。実際にはカニューレ位置・容量状態・回転数など複数要因があります。緑のリングは酸素化の模式表現であり、血液へのガス混入や酸素化の保証を示しません。教育用の概念モデルです。圧力・流量・回転数の数値は仮想値で、テルモCAPIOX SP-200の性能曲線や実患者の生理学を検証・再現したものではありません。診療判断やアラーム設定には使用しないでください。青・赤は回路の区分を表し、実際の血液色や酸素化を保証するものではありません。緑の点灯はガス供給の模擬状態であり、十分な血液酸素化を意味しません。酸素供給停止は血液酸素化に影響し得ますが、血液側圧力だけでは検知できない場合があります。</p>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id),cv=$('c'),ctx=cv.getContext('2d'),gc=$('graph').getContext('2d');let rpm=3000,scenario='normal',phase=0,chatterPhase=0,travel=0,oxygenTravel=0,last=performance.now(),history=[],lastGraph=0,gasElapsed=0,gasImpact=0,gasHistory=[],gasSample=0,gasOn=true,gasPaused=false;
+const configs={normal:{factor:1,label:'正常'},drain:{factor:.48,label:'脱血不良'},oxy:{factor:.67,label:'人工肺抵抗増大'},return:{factor:.58,label:'送血側抵抗増大'},gas:{factor:1,label:'酸素供給停止'}};
+function calc(){let r=rpm/3000,f=Math.max(0,4.2*r*configs[scenario].factor);if(scenario==='drain'&&rpm>0){const oscillation=Math.pow(Math.max(0,Math.sin(chatterPhase)),2);f*=1-.52*oscillation;}let pv=-Math.round(12+18*f+(scenario==='drain'?65*r:0));let post=Math.round(15+15*f+(scenario==='return'?90*r:0));let delta=Math.round((12+9*f+(scenario==='oxy'?95*r:0))*(f>0?1:0));let pre=post+delta;if(!rpm){pv=0;pre=0;post=0;f=0}return {f:Math.max(0,f),pv,pre,post,delta};}
+const paths=[
+[[132,218],[170,218],[170,190],[235,190]], // 脱血: patient to pump
+[[290,190],[425,190]], // pump to oxygenator
+[[535,190],[640,190],[640,270],[100,270],[100,242],[84,242]] // 送血: oxygenator to patient
+];
+function strokePath(pts,color,w){ctx.beginPath();pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.strokeStyle=color;ctx.lineWidth=w;ctx.lineJoin='round';ctx.lineCap='round';ctx.stroke()}
+function circle(x,y,r,color){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill()}
+function txt(s,x,y,color='#d8ebf5',size=15){ctx.fillStyle=color;ctx.font=`${size}px system-ui`;ctx.textAlign='center';ctx.fillText(s,x,y)}
+function segment(pts,t){let lens=[],total=0;for(let i=1;i<pts.length;i++){let a=pts[i-1],b=pts[i],l=Math.hypot(b[0]-a[0],b[1]-a[1]);lens.push(l);total+=l}let dist=((t%total)+total)%total;for(let i=0;i<lens.length;i++){if(dist<=lens[i]){let a=pts[i],b=pts[i+1],u=dist/lens[i];return [a[0]+(b[0]-a[0])*u,a[1]+(b[1]-a[1])*u]}dist-=lens[i]}return pts.at(-1)}
+function draw(v){ctx.clearRect(0,0,760,360);ctx.fillStyle='#0b2030';ctx.fillRect(0,0,760,360);
+// 患者を中央左に置き、脱血と送血の接続口を分離する。
+ctx.fillStyle='#253d4c';ctx.fillRect(35,119,95,139);circle(82,160,25,'#d67d7b');txt('患者',82,201);txt('模擬回路',380,35,'#91b7cb',14);
+// 送血口は下、脱血口は上。接続位置が重ならないようにする。
+strokePath([[100,270],[100,242],[84,242]],'#c9586a',14);
+if(scenario==='drain'&&rpm>0){
+  // 脱血管の周期的な虚脱を模式的に描画。位置の逆戻りではなく管径が変化する。
+  const collapse=Math.pow(Math.max(0,Math.sin(chatterPhase)),2);
+  const width=14-10*collapse;
+  strokePath([[130,218],[170,218],[170,190],[235,190]],'#24465e',17);
+  strokePath([[130,218],[170,218],[170,190],[235,190]],'#427db2',width);
+}else{strokePath([[130,218],[170,218],[170,190],[235,190]],'#427db2',14);}
+strokePath(paths[1],'#427db2',14);
+strokePath([[535,190],[640,190],[640,270],[100,270]],'#c9586a',14);
+circle(130,218,6,'#7bb8f1');circle(84,242,6,'#f28e99');
+txt('脱血',165,237,'#90caff',16);txt('送血',175,290,'#ff9da7',16);
+circle(262,190,31,'#2b637d');circle(262,190,22,'#0e2939');ctx.save();ctx.translate(262,190);ctx.rotate(phase*2);for(let i=0;i<4;i++){ctx.rotate(Math.PI/2);ctx.fillStyle='#80cfdf';ctx.fillRect(0,-4,17,8)}ctx.restore();txt('遠心ポンプ',263,138);
+ctx.fillStyle='#245c6d';ctx.fillRect(424,150,110,80);for(let i=0;i<7;i++){ctx.fillStyle=i%2?'#8bcedb':'#5a9db2';ctx.fillRect(433+i*13,156,7,68)}txt('人工肺',479,138);txt('Pven',176,167,'#9fd5f1',13);txt('Ppre',387,167,'#9fd5f1',13);txt('Ppost',574,167,'#9fd5f1',13);
+// 赤い送血粒子に小さな緑のリングを付ける。ガスが血液に混入する描写ではなく、酸素化を学ぶための記号。
+// 人工肺から出た粒子だけに表示し、ガス停止時は緑の記号を消す。
+paths.forEach((p,j)=>{const pathLength=p.slice(1).reduce((sum,point,k)=>sum+Math.hypot(point[0]-p[k][0],point[1]-p[k][1]),0);const count=Math.max(2,Math.round(pathLength/32));for(let i=0;i<count;i++){
+  const pt=segment(p,travel+i*pathLength/count);
+  circle(pt[0],pt[1],3.5,j===2?'#ff8290':'#86c4f1');
+  if(j===2 && gasOn){
+    ctx.beginPath();ctx.arc(pt[0],pt[1],7,0,Math.PI*2);
+    ctx.strokeStyle='#53ef91';ctx.lineWidth=2;ctx.stroke();
+  }
+}});
+
+if(scenario==='drain'){
+  txt('脱血不良・チャタリング',239,305,'#ffc27b',16);
+  txt('回転数↑ → 虚脱・再拡張の周期が短縮',245,347,'#ffcf91',12);
+  if(rpm>0){const collapse=Math.pow(Math.max(0,Math.sin(chatterPhase)),2);
+    txt(collapse>.65?'脱血管が周期的に虚脱':'脱血管が再拡張',240,326,'#ffcf91',12);
+  }
+}
+if(scenario==='oxy'){txt('人工肺抵抗 ↑',478,251,'#ffc27b')}if(scenario==='return'){txt('送血抵抗 ↑',617,302,'#ffc27b')}if(!gasOn){txt('酸素供給停止',480,110,'#ff9e93');ctx.strokeStyle='#ff9e93';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(460,86);ctx.lineTo(500,112);ctx.moveTo(500,86);ctx.lineTo(460,112);ctx.stroke()}
+// Green oxygen supply line: distinct from the blood circuit.
+
+strokePath([[480,45],[480,148]],gasOn?'#2dd78c':'#536d67',9);
+txt('酸素供給',559,58,gasOn?'#79e8ae':'#a7b4ae',14);
+if(gasOn){for(let i=0;i<5;i++){const yy=55+((oxygenTravel*110+i*20)%85);circle(480,yy,4,'#9cf7bd')}}
+else{txt('供給停止',560,78,'#ffaaa1',13)}
+// ガス供給の状態だけを独立表示。赤い送血回路は状態にかかわらず固定。
+const pulse=.55+.45*Math.sin(phase*6);
+ctx.fillStyle=gasOn?'#102f27':'#3c2027';ctx.fillRect(548,90,173,58);
+ctx.strokeStyle=gasOn?'#38c987':'#d46a73';ctx.lineWidth=2;ctx.strokeRect(548,90,173,58);
+circle(565,108,7,gasOn?'#34df92':`rgba(255,92,105,${pulse.toFixed(2)})`);
+ctx.textAlign='left';ctx.font='bold 15px system-ui';ctx.fillStyle=gasOn?'#79edb2':'#ff9da7';ctx.fillText(gasOn?'酸素ガス供給中':'酸素ガス供給停止',580,114);
+ctx.font='12px system-ui';ctx.fillStyle='#b3c6cd';ctx.fillText('血液酸素化の保証ではない',558,137);
+ctx.textAlign='center';
+txt('青：人工肺前 ／ 赤：人工肺後 ／ 緑：酸素の模式マーク',380,333,'#8eacbd',13);
+}
+function drawGraph(){gc.clearRect(0,0,760,150);gc.strokeStyle='#3b5568';gc.lineWidth=1;for(let y=25;y<150;y+=35){gc.beginPath();gc.moveTo(0,y);gc.lineTo(760,y);gc.stroke()}gc.beginPath();history.forEach((v,i)=>{let x=i*760/119,y=135-v/8*110;i?gc.lineTo(x,y):gc.moveTo(x,y)});gc.strokeStyle='#68d5dd';gc.lineWidth=3;gc.stroke();gc.fillStyle='#b3ccda';gc.font='13px system-ui';gc.fillText('模擬流量トレンド（直近約24秒）',12,18)}
+function render(v){$('flow').textContent=v.f.toFixed(1);$('pv').textContent=v.pv;$('pre').textContent=v.pre;$('post').textContent=v.post;$('rpmLabel').textContent=rpm+' rpm';$('trend').textContent='人工肺前後の圧較差 ΔP = '+v.delta+' mmHg（模擬値）'}
+$('rpm').oninput=e=>{rpm=+e.target.value;render(calc())};$('stop').onclick=()=>{rpm=0;$('rpm').value=0;render(calc())};$('reset').onclick=()=>{rpm=3000;scenario='normal';gasOn=true;gasElapsed=0;gasImpact=0;gasHistory=[];gasPaused=false;$('rpm').value=3000;$('scenario').value='normal';history=[];render(calc())};$('scenario').onchange=e=>{scenario=e.target.value;if(scenario==='gas'){gasOn=false;gasElapsed=0;gasImpact=0;gasHistory=[];gasPaused=false;}render(calc())};
+
+
+const examQuestions=[
+{v:'ECMO開始前。ポンプ、血液回路の準備は確認済みです。ガス交換系について最も適切な確認は？',opts:['ガス供給源・配管接続・流量・設定を確認する','回転数の設定だけ確認する','回路圧が正常なら確認を省く','人工肺の外観だけ確認する'],ok:0,why:'人工肺のガス交換には適切なガス供給が必要です。供給源、接続、流量、設定の確認を独立して行います。'},
+{v:'開始後、流量4.2 L/min、回路圧は安定。一方、酸素化に疑問が生じました。次に確認するのは？',opts:['血液側の流量があるため経過観察のみ','回転数を上げることだけを優先','人工肺へのガス供給経路と供給状態を直接確認する','脱血カニューレを交換する'],ok:2,why:'血液側の流量・圧力だけではガス供給異常を除外できません。供給系を直接確認します。'},
+{v:'人工肺へのガス供給が停止していることを確認しました。適切な対応方針は？',opts:['流量を維持していれば何もしない','施設手順に従い担当チームへ共有し、供給系を是正する','回転数のみ上げて酸素化を改善する','送血側圧力だけ確認して終了する'],ok:1,why:'ガス供給の異常を是正し、チームと連携して患者・回路の状態を確認します。'},
+{v:'ガス供給を再開しました。ガス交換が適切に回復したかの確認として妥当なのは？',opts:['緑色の表示が点灯したことだけで判断する','回転数が変わらなければ確認不要','脱血圧が変わらないことだけで判断する','人工肺後血液ガスや患者側の酸素化を適切に評価する'],ok:3,why:'ガス供給の再開と実際のガス交換の回復は別に確認する必要があります。'},
+{v:'VA-ECMOで自己肺の酸素化が不良な場合、右上肢と下半身の酸素化について正しい理解は？',opts:['右上肢と下半身の酸素化は必ず一致する','右上肢SpO₂が正常なら人工肺後の酸素化は常に正常','自己心拍出とECMO送血の混合により部位差が生じ得る','回路圧だけで部位差を評価できる'],ok:2,why:'VA-ECMOでは自己心拍出・肺機能・混合位置により酸素化の部位差が生じ得ます。'}
+];
+let examIndex=0,examAnswers=[],examActive=false;
+function examRender(){
+ const q=examQuestions[examIndex];$('examProgress').textContent='設問 '+(examIndex+1)+' / 5';
+ $('examVitals').textContent=examIndex===0?'開始前チェック。回転数 0 rpm。':examIndex===1?'回転数 3000 rpm / 流量 4.2 L/min / 血液側圧力は安定（仮想値）':examIndex===2?'供給系点検によりガス供給停止を発見。':examIndex===3?'供給系の是正後。血液側流量は維持。':'VA-ECMO管理中。自己肺の酸素化が不良。';
+ $('examPrompt').textContent=q.v;$('examChoices').innerHTML='';$('examNotice').textContent='';
+ const order=[0,1,2,3];for(let i=3;i>0;i--){let j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]]}
+ order.forEach(n=>{let b=document.createElement('button');b.className='answer';b.textContent=q.opts[n];b.onclick=()=>{examAnswers.push(n);examIndex++;if(examIndex<5){examRender()}else{examFinish()}};$('examChoices').appendChild(b)});
+}
+function examFinish(){examActive=false;$('examBody').classList.add('hidden');let score=examAnswers.reduce((t,n,i)=>t+(n===examQuestions[i].ok?1:0),0);$('examResult').classList.remove('hidden');let html='<h3>評価結果：'+score+' / 5 問</h3><p>回答後の振り返り</p>';examQuestions.forEach((q,i)=>{let ok=examAnswers[i]===q.ok;html+='<div class="meter" style="margin:8px 0"><b style="font-size:15px">'+(i+1)+'問目：'+(ok?'正解':'要復習')+'</b><p>'+q.why+'</p></div>'});$('examResult').innerHTML=html;}
+$('examStart').onclick=()=>{examIndex=0;examAnswers=[];examActive=true;$('examResult').classList.add('hidden');$('examBody').classList.remove('hidden');examRender();$('examPanel').scrollIntoView({behavior:'smooth',block:'start'})};
+
+$('gasFail').onclick=()=>{gasOn=false;gasElapsed=0;gasImpact=0;gasHistory=[];gasPaused=false;$('scenario').value='gas';scenario='gas';render(calc())};
+$('gasRestore').onclick=()=>{gasOn=true;gasPaused=false;render(calc());renderOxygen()};
+function renderOxygen(){
+  const poor=$('nativeLung').value==='poor';
+  // Conceptual relative indicator only; not physiological SpO2/PaO2 computation.
+  const lower=100-80*gasImpact;
+  const upper=100-(poor?65:10)*gasImpact;
+  $('gasStatus').textContent=gasPaused?'停止中・演習一時停止':gasOn?'供給中':'停止中';
+  $('gasStatus').style.color=gasOn?'#75e4a5':'#ff9e93';
+  $('gasTime').textContent=Math.round(gasElapsed);
+  $('upperSat').textContent=gasImpact<.05?'基準状態':upper<65?'大きく低下':upper<90?'低下傾向':'変化が小さい';
+  $('lowerSat').textContent=gasImpact<.05?'基準状態':lower<65?'大きく低下':'低下傾向';
+  $('gasMessage').textContent=gasPaused?'【重大な酸素供給異常】模擬経過120秒に到達したため演習を一時停止しました。120秒は生命維持の限界時間ではありません。施設の緊急対応手順に従って速やかに供給系を確認してください。酸素供給を再開するか「正常に戻す」でやり直してください。':gasOn?(gasImpact>.03?'ガス供給を再開。模式的な酸素化指標が徐々に回復します。':'ガス供給中。圧力や流量は酸素供給の確認にはなりません。'):'ガス停止中。ポンプが回っていても血液側圧力・流量はほぼ同じままです。ガス供給を必ず別に確認してください。';
+  gasHistory.push({upper,lower});if(gasHistory.length>120)gasHistory.shift();
+  const c=$('oxygenGraph'),g=c.getContext('2d');g.clearRect(0,0,760,190);
+  g.fillStyle='#a8c0d0';g.font='13px system-ui';g.fillText('酸素化の相対指標（実測値ではありません）',12,18);
+  for(let i=0;i<4;i++){let y=35+i*43;g.strokeStyle='#355063';g.beginPath();g.moveTo(0,y);g.lineTo(760,y);g.stroke()}
+  function line(key,color){g.beginPath();gasHistory.forEach((p,i)=>{let x=760*(i/119),y=165-p[key]*1.25;if(i===0)g.moveTo(x,y);else g.lineTo(x,y)});g.strokeStyle=color;g.lineWidth=3;g.stroke()}
+  line('upper','#70c7ef');line('lower','#eab073');
+  g.fillStyle='#70c7ef';g.fillText('青：右上肢側の模式指標',12,183);g.fillStyle='#eab073';g.fillText('橙：下半身側の模式指標',270,183);
+}
+function frame(now){let dt=Math.min(.05,(now-last)/1000);last=now;if(gasPaused){if(now-lastGraph>200){lastGraph=now;renderOxygen()}requestAnimationFrame(frame);return;}phase+=dt;
+// 独立した位相を積算するため、回転数を変えても動きが巻き戻らない。
+// 教育用の頻度表現（実際のチャタリング周波数を予測するものではない）。
+if(scenario==='drain'&&rpm>0){const cyclesPerSecond=.65+3.0*(rpm/4500);chatterPhase+=dt*2*Math.PI*cyclesPerSecond;}
+let v=calc();if(!gasOn){gasElapsed=Math.min(120,gasElapsed+dt*10);gasImpact=Math.min(1,gasImpact+dt*.13);if(gasElapsed>=120){gasPaused=true}}else{gasImpact=Math.max(0,gasImpact-dt*.17)}travel+=dt*v.f*24;oxygenTravel+=dt*(gasOn?1:0);draw(v);if(now-lastGraph>200){lastGraph=now;history.push(v.f);if(history.length>120)history.shift();render(v);drawGraph();renderOxygen()}requestAnimationFrame(frame)}render(calc());requestAnimationFrame(frame);
+})();
+</script></body></html>
