@@ -1,13 +1,32 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VA-ECMO 回路シミュレーター v3.2</title><style>
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VA-ECMO 回路シミュレーター v3.3</title><style>
 :root{font-family:system-ui,-apple-system,sans-serif;color:#e8f1fa;background:#091420}*{box-sizing:border-box}body{margin:0;padding:14px;max-width:850px;margin:auto}h1{font-size:21px;margin:5px 0}p{line-height:1.55;color:#b8cad9}section{background:#132537;border:1px solid #2c475e;border-radius:14px;padding:14px;margin:12px 0}.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}button,select{background:#203d55;color:#fff;border:1px solid #47718d;border-radius:9px;padding:10px;font-size:15px}button:active{background:#3c6786}button.selected{background:#176a75}input[type=range]{width:100%;accent-color:#58c9da}.readings{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.meter{background:#0a1c2a;border-radius:9px;padding:10px}.meter b{font-size:21px;color:#fff}.meter small{display:block;color:#a5bed0;margin-bottom:5px}canvas{width:100%;display:block;background:#081722;border-radius:12px}.note{font-size:12px;color:#9fb5c5}#feedback{min-height:42px;color:#e8d49e}.hidden{display:none}.answer{display:block;width:100%;margin:7px 0;text-align:left;cursor:pointer}.answer.selected{background:#176a75;border:2px solid #8ae6d9;font-weight:700}.answer.selected::before{content:"✓ 選択中  ";color:#fff}.trouble-progress-track{height:9px;background:#0a1c2a;border-radius:9px;overflow:hidden;margin:8px 0 14px}.trouble-progress-fill{height:100%;width:0;background:#58c9da;transition:width .25s}.trouble-case-heading{font-size:19px;color:#fff;margin:12px 0 6px}.trouble-confirmed{padding:12px;background:#174536;border:1px solid #49a88b;border-radius:9px;margin-top:12px;color:#e8f1fa}.pill{font-size:12px;border-radius:15px;background:#1b3b50;padding:4px 9px;color:#a8d8e4}.trouble-result-case{margin:12px 0;padding:12px}.trouble-result-case h4{margin:0 0 10px;font-size:16px}.trouble-result-answer{border:1px solid;border-radius:9px;padding:10px;margin:8px 0;line-height:1.55}.trouble-result-answer strong{display:block;margin-bottom:4px}.trouble-correct{background:#103e30;border-color:#3ba778;color:#c6f5dc}.trouble-incorrect{background:#49232b;border-color:#d86672;color:#ffe0e2}.trouble-right-answer{margin-top:6px;color:#b7f1d1;font-weight:700}.trouble-result-explanation{margin:10px 0 0;color:#d3e0ea}
-/* v3.2: タイトルを白背景と濃色文字に変更 */
+/* v3.3: タイトルを白背景と濃色文字に変更 */
 h1{color:#172535;background:#ffffff;border:1px solid #d4dee8;border-radius:12px;padding:15px 16px;font-size:clamp(23px,4.2vw,30px);font-weight:800;line-height:1.4;letter-spacing:.01em;text-shadow:none}
 h1 .pill{display:inline-block;vertical-align:middle;color:#ffffff;background:#315c78;border:1px solid #7caac4;font-weight:700;text-shadow:none}
 body>p:first-of-type{color:#eaf5ff;font-size:15px;font-weight:600;line-height:1.85;background:#173248;border-left:4px solid #58c9da;padding:10px 12px;border-radius:7px}
 section h2{color:#ffffff!important;font-size:19px!important;font-weight:800;line-height:1.5;border-left:4px solid #65d5e4;padding-left:10px;margin:2px 0 12px;text-shadow:0 1px 1px #0006}
 section h3{color:#f3f9ff;font-weight:750}
+
+/* v3.3: スマートフォンでの5症例演習のはみ出し防止 */
+#troublePanel, #troublePanel *{min-width:0;max-width:100%}
+#troublePanel{overflow-wrap:anywhere}
+#troublePanel .meter{min-width:0;overflow-wrap:anywhere}
+#troublePanel .meter b{display:block;white-space:normal;overflow-wrap:anywhere;font-size:clamp(16px,4.5vw,21px);line-height:1.35}
+#troublePanel button{white-space:normal;overflow-wrap:anywhere;line-height:1.5;min-height:44px}
+#troublePanel .answer{text-align:left}
+#troublePanel .trouble-result-answer{overflow-wrap:anywhere}
+@media(max-width:480px){
+ body{padding:9px}
+ #troublePanel{padding:12px}
+ #troublePanel .readings{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+ #troublePanel .meter{padding:9px 8px}
+ #troublePanel .meter small{font-size:12px}
+ #troublePanel .controls{grid-template-columns:minmax(0,1fr)}
+ #troublePanel .trouble-case-heading{font-size:17px;line-height:1.45}
+ #troublePanel .answer{font-size:14px;padding:11px}
+}
 </style></head><body>
-<h1>VA-ECMO 回路シミュレーター <span class="pill">v3.2 試験版</span></h1><p>① 患者・カニューレ条件を操作する → ② 酸素化の変化を観察する → ③ 酸素化実践問題 → ④ ランダムトラブルシューティング。</p>
+<h1>VA-ECMO 回路シミュレーター <span class="pill">v3.3 試験版</span></h1><p>① 患者・カニューレ条件を操作する → ② 酸素化の変化を観察する → ③ 酸素化実践問題 → ④ ランダムトラブルシューティング。</p>
 <section><canvas id="c" width="760" height="360" aria-label="VA-ECMOの模式回路"></canvas><p class="note">脱血不良や強い脱血制限では青い脱血管が周期的に細くなり、回転数を上げるほどその周期が短くなります。流量の揺らぎも連動します。<br>血液粒子は脱血側・送血側で同じ画面上の移動速度に統一しています（実測流速ではありません）。模式回路：患者 → 脱血 → 遠心ポンプ → 人工肺 → 送血 → 患者。流れる粒子は血流のイメージであり、実測速度ではありません。青は人工肺前の回路、赤は人工肺後の回路、緑は酸素ガス供給を示します。回路の色は酸素化の良否を示しません。</p></section>
 <section id="hemoPanel" style="border:2px solid #527b9a"><h2 style="font-size:18px">① 患者・カニューレ条件を操作する</h2><p>遠心ポンプ回転数と患者・カニューレ条件を操作し、後負荷・脱血条件・カニューレ位置による圧力とFlowの違いを観察してください。</p>
 <div><label for="rpm">遠心ポンプ回転数　<strong id="rpmLabel">3000 rpm</strong></label><input id="rpm" type="range" min="0" max="4500" step="100" value="3000"></div><div class="controls"><button id="stop">ポンプ停止</button><button id="reset">正常に戻す</button></div><input type="hidden" id="scenario" value="normal"><div><label for="mapControl">患者平均動脈圧（MAP） <strong id="mapLabel">75 mmHg</strong></label><input id="mapControl" type="range" min="40" max="120" step="5" value="75"></div>
